@@ -6,3 +6,7 @@ outputs/
 third_party/netvlad
 datasets/*
 !datasets/sacre_coeur/
+tests/
+server/client_data/
+server/Config.py
+server/reconstruction/

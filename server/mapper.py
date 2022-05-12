@@ -7,7 +7,11 @@ from hloc.visualization import plot_images, read_image
 # from hloc.utils import viz_3d
 import pycolmap
 
-target = 'cluster_4f'
+
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
+
+target = 'jaram220511'
 
 images = Path('../datasets/' + target)
 outputs = Path('../outputs/' + target)
@@ -28,8 +32,3 @@ pairs_from_exhaustive.main(sfm_pairs, image_list=references)
 match_features.main(matcher_conf, sfm_pairs, features=features, matches=matches)
 
 model = reconstruction.main(sfm_dir, images, sfm_pairs, features, matches, image_list=references)
-
-if not os.path.isdir('./reconstruction/' + target):
-    os.makedirs('./reconstruction/' + target)
-
-model.write_binary('./reconstruction/' + target)

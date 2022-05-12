@@ -3,6 +3,7 @@ import shutil
 import server.Config as Config
 import socket
 import logging
+import math
 from _thread import *
 
 import pycolmap
@@ -14,24 +15,62 @@ logger = logging.getLogger("hloc")
 logger.setLevel(logging.CRITICAL)
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "6,7"
+os.environ["CUDA_VISIBLE_DEVICES"] = "7"
 
 HERE_PATH = os.path.normpath(os.path.dirname(__file__))
 
+target = 'cluster_4f'
+
+images = Path('../datasets/' + target)
+outputs = Path('../outputs/' + target)
+
+sfm_pairs = outputs / 'pairs-sfm.txt'
+loc_pairs = outputs / 'pairs-loc.txt'
+sfm_dir = outputs / 'sfm'
+features = outputs / 'features.h5'
+matches = outputs / 'matches.h5'
+
+feature_conf = extract_features.confs['superpoint_aachen']
+matcher_conf = match_features.confs['superglue']
+
+model = pycolmap.Reconstruction()
+model.read_binary(sfm_dir.as_posix())
+
+
+def quaternion_to_euler(qw, qx, qy, qz):
+    t0 = 2.0 * (qw * qx + qy * qz)
+    t1 = 1.0 - 2.0 * (qx * qx + qy * qy)
+    roll_x = math.atan2(t0, t1) # radian
+    roll_x = math.degrees(roll_x) # degree
+    
+    t2 = 2.0 * (qw * qy - qz * qx)
+    t2 = 1.0 if t2 >= 1.0 else t2
+    t2 = -1.0 if t2 <= -1.0 else t2
+    pitch_y = math.asin(t2) # radian
+    pitch_y = math.degrees(pitch_y) # degree
+    
+    t3 = 2.0 * (qw * qz + qx * qy)
+    t4 = 1.0 - 2.0 * (qy * qy + qz * qz)
+    yaw_z = math.atan2(t3, t4) # radian
+    yaw_z = math.degrees(yaw_z) # degree
+    # print("Roll(X), Pitch(Y), Yaw(Z):\n", roll_x, pitch_y, yaw_z)
+    return roll_x, pitch_y, yaw_z # in degrees
+    
+
 def localizer(query): # query img path
-    target = 'cluster_4f'
+    # target = 'cluster_4f'
 
-    images = Path('../datasets/' + target)
-    outputs = Path('../outputs/' + target)
+    # images = Path('../datasets/' + target)
+    # outputs = Path('../outputs/' + target)
 
-    sfm_pairs = outputs / 'pairs-sfm.txt'
-    loc_pairs = outputs / 'pairs-loc.txt'
-    sfm_dir = outputs / 'sfm'
-    features = outputs / 'features.h5'
-    matches = outputs / 'matches.h5'
+    # sfm_pairs = outputs / 'pairs-sfm.txt'
+    # loc_pairs = outputs / 'pairs-loc.txt'
+    # sfm_dir = outputs / 'sfm'
+    # features = outputs / 'features.h5'
+    # matches = outputs / 'matches.h5'
 
-    feature_conf = extract_features.confs['superpoint_aachen']
-    matcher_conf = match_features.confs['superglue']
+    # feature_conf = extract_features.confs['superpoint_aachen']
+    # matcher_conf = match_features.confs['superglue']
 
     references = [p.relative_to(images).as_posix() for p in (images / 'mapping/').iterdir()]
 
@@ -39,8 +78,8 @@ def localizer(query): # query img path
     pairs_from_exhaustive.main(loc_pairs, image_list=[query], ref_list=references)
     match_features.main(matcher_conf, loc_pairs, features=features, matches=matches, overwrite=True)
 
-    model = pycolmap.Reconstruction()
-    model.read_binary('./reconstruction/' + target)
+    # model = pycolmap.Reconstruction()
+    # model.read_binary(sfm_dir.as_posix())
 
     camera = pycolmap.infer_camera_from_image(images / query)
     ref_ids = [model.find_image_with_name(r).image_id for r in references]
@@ -52,19 +91,25 @@ def localizer(query): # query img path
     ret, log = pose_from_cluster(localizer, query, camera, ref_ids, features, matches)
 
     # print(f'found {ret["num_inliers"]}/{len(ret["inliers"])} inlier correspondences.')
-    # print(ret['qvec'])
-    # print(ret['tvec'])
+    print(ret['qvec'])
+    print(ret['tvec'])
+    qw, qx, qy, qz = ret['qvec'].tolist()
+    tx, ty, tz = ret['tvec'].tolist()
 
-    location = ' '.join(str(q) for q in ret['qvec'].tolist())+' '+' '.join(str(t) for t in ret['tvec'].tolist())
-    return location
+    # roll, pitch, yaw = quaternion_to_euler(qw, qx, qy, qz)
+    # res = ' '.join(str(i) for i in [-roll, pitch, -yaw, tx, -ty, tz])
+
+    # # location = ' '.join(str(q) for q in ret['qvec'].tolist())+' '+' '.join(str(t) for t in ret['tvec'].tolist())
+    # return res
+    return qw, qx, qy, qz, tx, ty, tz
 
 def threaded(client_socket, addr):
-    print('Connected by :', addr[0], ':', addr[1])
+    # print('Connected by :', addr[0], ':', addr[1])
     while True:
         try : 
             data = client_socket.recv(4096)
             if not data:
-                print('Disconnected by' + addr[0], ':', addr[1])
+                # print('Disconnected by' + addr[0], ':', addr[1])
                 break
             # print('Received from ' + addr[0], ':', addr[1])
 
@@ -72,7 +117,7 @@ def threaded(client_socket, addr):
             id = request_data[0]
             file_name = request_data[1]
             file_size = int(request_data[2])
-            # print(request_data)
+            # print('req data:', request_data)
 
             dir_path = os.path.join(os.getcwd(), 'client_data', id)
             img_path = os.path.join(dir_path, file_name)
@@ -92,11 +137,22 @@ def threaded(client_socket, addr):
                     # print("length : ", + len(data))
                     pre = data[-3:]
             # print('End write')
-            client_socket.sendall(localizer(img_path).encode())
+
+            qw, qx, qy, qz, tx, ty, tz = localizer(img_path)
+            roll, pitch, yaw = quaternion_to_euler(qw, qx, qy, qz)
+            res = ' '.join(str(i) for i in [-roll, pitch+90, -yaw, tx, -ty, tz])
+
+            # client_socket.sendall(localizer(img_path).encode())
+            client_socket.sendall(res.encode())
+
             # print("trajectory transferred")
             
         except ConnectionResetError as e:
-            print('Disconnected by' + addr[0], ':', addr[1])
+            # print('Disconnected by' + addr[0], ':', addr[1])
+            break
+        except UnicodeDecodeError:
+            # print('Unicode Decode error')
+            client_socket.sendall("error".encode())
             break
             
     client_socket.close()

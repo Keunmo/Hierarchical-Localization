@@ -225,7 +225,7 @@ In a match file, each key corresponds to the string `path0.replace('/', '-')+'_'
 
 <details>
 <summary>v1.0 (July 2020)</summary>
-
+ 
 Initial public version.
 </details>
 

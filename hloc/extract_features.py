@@ -237,7 +237,8 @@ def main(conf: Dict,
     Model = dynamic_load(extractors, conf['model']['name'])
     model = Model(conf['model']).eval().to(device)
 
-    for data in tqdm(loader):
+    # for data in tqdm(loader):
+    for data in loader:
         name = data['name'][0]  # remove batch dimension
         if name in skip_names:
             continue

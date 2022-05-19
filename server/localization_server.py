@@ -19,70 +19,54 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "7"
 
 HERE_PATH = os.path.normpath(os.path.dirname(__file__))
 
-target = 'cluster_4f'
+# target = 'jaram220511'
 
-images = Path('../datasets/' + target)
-outputs = Path('../outputs/' + target)
+# images = Path('../datasets/' + target)
+# outputs = Path('../outputs/' + target)
 
-sfm_pairs = outputs / 'pairs-sfm.txt'
-loc_pairs = outputs / 'pairs-loc.txt'
-sfm_dir = outputs / 'sfm'
-features = outputs / 'features.h5'
-matches = outputs / 'matches.h5'
+# sfm_pairs = outputs / 'pairs-sfm.txt'
+# loc_pairs = outputs / 'pairs-loc.txt'
+# sfm_dir = outputs / 'sfm'
+# features = outputs / 'features.h5'
+# matches = outputs / 'matches.h5'
 
-feature_conf = extract_features.confs['superpoint_aachen']
-matcher_conf = match_features.confs['superglue']
+# feature_conf = extract_features.confs['superpoint_aachen']
+# matcher_conf = match_features.confs['superglue']
 
-model = pycolmap.Reconstruction()
-model.read_binary(sfm_dir.as_posix())
+# model = pycolmap.Reconstruction()
+# model.read_binary(sfm_dir.as_posix())
 
+# references = [p.relative_to(images).as_posix() for p in (images / 'mapping/').iterdir()]
+# ref_ids = [model.find_image_with_name(r).image_id for r in references]
 
-def quaternion_to_euler(qw, qx, qy, qz):
-    t0 = 2.0 * (qw * qx + qy * qz)
-    t1 = 1.0 - 2.0 * (qx * qx + qy * qy)
-    roll_x = math.atan2(t0, t1) # radian
-    roll_x = math.degrees(roll_x) # degree
-    
-    t2 = 2.0 * (qw * qy - qz * qx)
-    t2 = 1.0 if t2 >= 1.0 else t2
-    t2 = -1.0 if t2 <= -1.0 else t2
-    pitch_y = math.asin(t2) # radian
-    pitch_y = math.degrees(pitch_y) # degree
-    
-    t3 = 2.0 * (qw * qz + qx * qy)
-    t4 = 1.0 - 2.0 * (qy * qy + qz * qz)
-    yaw_z = math.atan2(t3, t4) # radian
-    yaw_z = math.degrees(yaw_z) # degree
-    # print("Roll(X), Pitch(Y), Yaw(Z):\n", roll_x, pitch_y, yaw_z)
-    return roll_x, pitch_y, yaw_z # in degrees
-    
+def localizer(map_name: str, query: str): # query img path
+    # target = 'jaram220511'
+    target = map_name
 
-def localizer(query): # query img path
-    # target = 'cluster_4f'
+    images = Path('../datasets/' + target)
+    outputs = Path('../outputs/' + target)
 
-    # images = Path('../datasets/' + target)
-    # outputs = Path('../outputs/' + target)
+    sfm_pairs = outputs / 'pairs-sfm.txt'
+    loc_pairs = outputs / 'pairs-loc.txt'
+    sfm_dir = outputs / 'sfm'
+    features = outputs / 'features.h5'
+    matches = outputs / 'matches.h5'
 
-    # sfm_pairs = outputs / 'pairs-sfm.txt'
-    # loc_pairs = outputs / 'pairs-loc.txt'
-    # sfm_dir = outputs / 'sfm'
-    # features = outputs / 'features.h5'
-    # matches = outputs / 'matches.h5'
+    feature_conf = extract_features.confs['superpoint_aachen']
+    matcher_conf = match_features.confs['superglue']
 
-    # feature_conf = extract_features.confs['superpoint_aachen']
-    # matcher_conf = match_features.confs['superglue']
+    model = pycolmap.Reconstruction()
+    model.read_binary(sfm_dir.as_posix())
 
     references = [p.relative_to(images).as_posix() for p in (images / 'mapping/').iterdir()]
-
+    ref_ids = [model.find_image_with_name(r).image_id for r in references]
+    # references = [p.relative_to(images).as_posix() for p in (images / 'mapping/').iterdir()]
     extract_features.main(feature_conf, images, image_list=[query], feature_path=features, overwrite=True)
     pairs_from_exhaustive.main(loc_pairs, image_list=[query], ref_list=references)
     match_features.main(matcher_conf, loc_pairs, features=features, matches=matches, overwrite=True)
 
-    # model = pycolmap.Reconstruction()
-    # model.read_binary(sfm_dir.as_posix())
-
     camera = pycolmap.infer_camera_from_image(images / query)
-    ref_ids = [model.find_image_with_name(r).image_id for r in references]
+    # ref_ids = [model.find_image_with_name(r).image_id for r in references]
     conf = {
         'estimation': {'ransac': {'max_error': 12}},
         'refinement': {'refine_focal_length': True, 'refine_extra_params': True},
@@ -90,17 +74,12 @@ def localizer(query): # query img path
     localizer = QueryLocalizer(model, conf)
     ret, log = pose_from_cluster(localizer, query, camera, ref_ids, features, matches)
 
-    # print(f'found {ret["num_inliers"]}/{len(ret["inliers"])} inlier correspondences.')
+    print(f'found {ret["num_inliers"]}/{len(ret["inliers"])} inlier correspondences.')
     print(ret['qvec'])
     print(ret['tvec'])
     qw, qx, qy, qz = ret['qvec'].tolist()
     tx, ty, tz = ret['tvec'].tolist()
 
-    # roll, pitch, yaw = quaternion_to_euler(qw, qx, qy, qz)
-    # res = ' '.join(str(i) for i in [-roll, pitch, -yaw, tx, -ty, tz])
-
-    # # location = ' '.join(str(q) for q in ret['qvec'].tolist())+' '+' '.join(str(t) for t in ret['tvec'].tolist())
-    # return res
     return qw, qx, qy, qz, tx, ty, tz
 
 def threaded(client_socket, addr):
@@ -114,10 +93,11 @@ def threaded(client_socket, addr):
             # print('Received from ' + addr[0], ':', addr[1])
 
             request_data = data.decode('utf-8').split() # cp949
+            print('req data:', request_data)
             id = request_data[0]
-            file_name = request_data[1]
-            file_size = int(request_data[2])
-            # print('req data:', request_data)
+            map_name = request_data[1]
+            file_name = request_data[2]
+            file_size = int(request_data[3])
 
             dir_path = os.path.join(os.getcwd(), 'client_data', id)
             img_path = os.path.join(dir_path, file_name)
@@ -138,20 +118,19 @@ def threaded(client_socket, addr):
                     pre = data[-3:]
             # print('End write')
 
-            qw, qx, qy, qz, tx, ty, tz = localizer(img_path)
-            roll, pitch, yaw = quaternion_to_euler(qw, qx, qy, qz)
-            res = ' '.join(str(i) for i in [-roll, pitch+90, -yaw, tx, -ty, tz])
+            # qw, qx, qy, qz, tx, ty, tz = localizer(img_path)
+            trans = ' '.join(str(i) for i in localizer(map_name, img_path))
 
             # client_socket.sendall(localizer(img_path).encode())
-            client_socket.sendall(res.encode())
+            client_socket.sendall(trans.encode())
 
             # print("trajectory transferred")
             
-        except ConnectionResetError as e:
-            # print('Disconnected by' + addr[0], ':', addr[1])
-            break
-        except UnicodeDecodeError:
-            # print('Unicode Decode error')
+        # except ConnectionResetError as e:
+        #     # print('Disconnected by' + addr[0], ':', addr[1])
+        #     break
+        except Exception as e:
+            print('Error:', e)
             client_socket.sendall("error".encode())
             break
             

@@ -147,7 +147,8 @@ def match_from_paths(conf: Dict,
     Model = dynamic_load(matchers, conf['model']['name'])
     model = Model(conf['model']).eval().to(device)
 
-    for (name0, name1) in tqdm(pairs, smoothing=.1):
+    # for (name0, name1) in tqdm(pairs, smoothing=.1):
+    for (name0, name1) in pairs:
         data = {}
         with h5py.File(str(feature_path_q), 'r') as fd:
             grp = fd[name0]

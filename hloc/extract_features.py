@@ -108,6 +108,17 @@ confs = {
             'resize_max': 1600,
         },
     },
+    'disk': {
+        'output': 'feats-disk',
+        'model': {
+            'name': 'disk',
+            'max_keypoints': 5000,
+        },
+        'preprocessing': {
+            'grayscale': False,
+            'resize_max': 1600,
+        },
+    },
     # Global descriptors
     'dir': {
         'output': 'global-feats-dir',
@@ -251,6 +262,8 @@ def main(conf: Dict,
             size = np.array(data['image'].shape[-2:][::-1])
             scales = (original_size / size).astype(np.float32)
             pred['keypoints'] = (pred['keypoints'] + .5) * scales[None] - .5
+            if 'scales' in pred:
+                pred['scales'] *= scales.mean()
             # add keypoint uncertainties scaled to the original resolution
             uncertainty = getattr(model, 'detection_noise', 1) * scales.mean()
 
@@ -260,7 +273,7 @@ def main(conf: Dict,
                 if (dt == np.float32) and (dt != np.float16):
                     pred[k] = pred[k].astype(np.float16)
 
-        with h5py.File(str(feature_path), 'a') as fd:
+        with h5py.File(str(feature_path), 'a', libver='latest') as fd:
             try:
                 if name in fd:
                     del fd[name]

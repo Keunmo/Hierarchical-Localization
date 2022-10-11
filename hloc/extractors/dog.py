@@ -1,59 +1,14 @@
 import kornia
 from kornia.feature.laf import (
-    laf_from_center_scale_ori, raise_error_if_laf_is_not_valid,
-    normalize_laf, denormalize_laf, get_laf_scale,
-    generate_patch_grid_from_normalized_LAF, pyrdown)
+    laf_from_center_scale_ori, extract_patches_from_pyramid)
 import numpy as np
 import torch
-import torch.nn.functional as F
 import pycolmap
 
 from ..utils.base_model import BaseModel
 
 
 EPS = 1e-6
-
-
-def extract_patches_from_pyramid(
-    img: torch.Tensor, laf: torch.Tensor, PS: int = 32,
-    normalize_lafs_before_extraction: bool = True
-) -> torch.Tensor:
-    """Extract patches defined by LAFs from image tensor.
-    Copied from kornia.feature.laf.extract_patches_from_pyramid with one minor
-    difference - highlighted below.
-    """
-    raise_error_if_laf_is_not_valid(laf)
-    if normalize_lafs_before_extraction:
-        nlaf: torch.Tensor = normalize_laf(laf, img)
-    else:
-        nlaf = laf
-    B, N, _, _ = laf.size()
-    _, ch, h, w = img.size()
-    scale = 2.0 * get_laf_scale(denormalize_laf(nlaf, img)) / float(PS)
-    pyr_idx = scale.log2().relu().long()  # diff: floor instead of round
-    cur_img = img
-    cur_pyr_level = 0
-    out = torch.zeros(B, N, ch, PS, PS).to(nlaf.dtype).to(nlaf.device)
-    while min(cur_img.size(2), cur_img.size(3)) >= PS:
-        _, ch, h, w = cur_img.size()
-        # for loop temporarily, to be refactored
-        for i in range(B):
-            scale_mask = (pyr_idx[i] == cur_pyr_level).squeeze()
-            if (scale_mask.float().sum()) == 0:
-                continue
-            scale_mask = (scale_mask > 0).view(-1)
-            grid = generate_patch_grid_from_normalized_LAF(
-                    cur_img[i: i + 1], nlaf[i: i + 1, scale_mask, :, :], PS)
-            patches = F.grid_sample(
-                cur_img[i: i + 1].expand(grid.size(0), ch, h, w),
-                grid,  # type: ignore
-                padding_mode="border",
-                align_corners=False,
-            )
-            out[i].masked_scatter_(scale_mask.view(-1, 1, 1, 1), patches)
-        cur_img = pyrdown(cur_img)
-        cur_pyr_level += 1
-    return out
 
 
 def sift_to_rootsift(x):
@@ -76,10 +31,13 @@ class DoG(BaseModel):
     }
     required_inputs = ['image']
     detection_noise = 1.0
+    max_batch_size = 1024
 
     def _init(self, conf):
         if conf['descriptor'] == 'sosnet':
             self.describe = kornia.feature.SOSNet(pretrained=True)
+        elif conf['descriptor'] == 'hardnet':
+            self.describe = kornia.feature.HardNet(pretrained=True)
         elif conf['descriptor'] not in ['sift', 'rootsift']:
             raise ValueError(f'Unknown descriptor: {conf["descriptor"]}')
 
@@ -114,6 +72,8 @@ class DoG(BaseModel):
                 device=getattr(pycolmap.Device, 'cuda' if use_gpu else 'cpu'))
 
         keypoints, scores, descriptors = self.sift.extract(image_np)
+        scales = keypoints[:, 2]
+        oris = np.rad2deg(keypoints[:, 3])
 
         if self.conf['descriptor'] in ['sift', 'rootsift']:
             # We still renormalize because COLMAP does not normalize well,
@@ -121,24 +81,28 @@ class DoG(BaseModel):
             if self.conf['descriptor'] == 'rootsift':
                 descriptors = sift_to_rootsift(descriptors)
             descriptors = torch.from_numpy(descriptors)
-        elif self.conf['descriptor'] == 'sosnet':
+        elif self.conf['descriptor'] in ('sosnet', 'hardnet'):
             center = keypoints[:, :2] + 0.5
-            scale = keypoints[:, 2] * self.conf['mr_size'] / 2
-            ori = -np.rad2deg(keypoints[:, 3])
+            laf_scale = scales * self.conf['mr_size'] / 2
+            laf_ori = -oris
             lafs = laf_from_center_scale_ori(
                 torch.from_numpy(center)[None],
-                torch.from_numpy(scale)[None, :, None, None],
-                torch.from_numpy(ori)[None, :, None]).to(image.device)
+                torch.from_numpy(laf_scale)[None, :, None, None],
+                torch.from_numpy(laf_ori)[None, :, None]).to(image.device)
             patches = extract_patches_from_pyramid(
                     image, lafs, PS=self.conf['patch_size'])[0]
-            if len(keypoints) == 0:
-                descriptors = torch.zeros((0, 128))
-            else:
-                descriptors = self.describe(patches).reshape(len(patches), 128)
+            descriptors = patches.new_zeros((len(patches), 128))
+            if len(patches) > 0:
+                for start_idx in range(0, len(patches), self.max_batch_size):
+                    end_idx = min(len(patches), start_idx+self.max_batch_size)
+                    descriptors[start_idx:end_idx] = self.describe(
+                        patches[start_idx:end_idx])
         else:
             raise ValueError(f'Unknown descriptor: {self.conf["descriptor"]}')
 
         keypoints = torch.from_numpy(keypoints[:, :2])  # keep only x, y
+        scales = torch.from_numpy(scales)
+        oris = torch.from_numpy(oris)
         scores = torch.from_numpy(scores)
 
         if self.conf['max_keypoints'] != -1:
@@ -146,11 +110,15 @@ class DoG(BaseModel):
             # follow https://github.com/mihaidusmanu/pycolmap/issues/8
             indices = torch.topk(scores, self.conf['max_keypoints'])
             keypoints = keypoints[indices]
+            scales = scales[indices]
+            oris = oris[indices]
             scores = scores[indices]
             descriptors = descriptors[indices]
 
         return {
             'keypoints': keypoints[None],
+            'scales': scales[None],
+            'oris': oris[None],
             'scores': scores[None],
             'descriptors': descriptors.T[None],
         }

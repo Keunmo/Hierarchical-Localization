@@ -124,6 +124,7 @@ def pose_from_cluster(
 
 
 def localize_from_query_list(reference_sfm: Union[Path, pycolmap.Reconstruction],
+         dataset: Path,
          queries: list,
          retrieval: Path,
          features: Path,
@@ -135,8 +136,7 @@ def localize_from_query_list(reference_sfm: Union[Path, pycolmap.Reconstruction]
     assert features.exists(), features
     assert matches.exists(), matches
 
-    data_path = Path('/home/keunmo/workspace/Hierarchical-Localization/datasets/fastfive')
-    queries = [(qname, pycolmap.infer_camera_from_image(data_path / qname)) for qname in queries]
+    queries = [(qname, pycolmap.infer_camera_from_image(dataset / qname)) for qname in queries]
 
     retrieval_dict = parse_retrieval(retrieval)
 
@@ -163,7 +163,7 @@ def localize_from_query_list(reference_sfm: Union[Path, pycolmap.Reconstruction]
                 continue
             db_ids.append(db_name_to_id[n])
 
-        ret, _ = pose_from_cluster(
+        ret, log = pose_from_cluster(
                 localizer, qname, qcam, db_ids, features, matches)
         if ret['success']:
             poses[qname] = (ret['qvec'], ret['tvec'])
@@ -172,11 +172,11 @@ def localize_from_query_list(reference_sfm: Union[Path, pycolmap.Reconstruction]
             poses[qname] = (closest.qvec, closest.tvec)
 
     logger.info(f'Localized {len(poses)} / {len(queries)} images.')
-    # logger.info(f'Writing poses to {results}...')
-    return poses
+    return poses, log
 
 
 def localize_from_image(reference_sfm: Union[Path, pycolmap.Reconstruction],
+         dataset: Path,
          query: Path,
          retrieval: Path,
          features: Path,
@@ -188,9 +188,8 @@ def localize_from_image(reference_sfm: Union[Path, pycolmap.Reconstruction],
     assert features.exists(), features
     assert matches.exists(), matches
 
-    data_path = Path('/home/keunmo/workspace/Hierarchical-Localization/datasets/fastfive')
     qname = str(query)
-    qcam = pycolmap.infer_camera_from_image(data_path / query)
+    qcam = pycolmap.infer_camera_from_image(dataset / query)
 
     retrieval_dict = parse_retrieval(retrieval)
 
@@ -204,7 +203,6 @@ def localize_from_image(reference_sfm: Union[Path, pycolmap.Reconstruction],
     poses = {}
 
     logger.info('Starting localization...')
-    # for qname, qcam in tqdm(queries):
     if qname not in retrieval_dict:
         logger.warning(
             f'No images retrieved for query image {qname}. Skipping...')
@@ -217,7 +215,7 @@ def localize_from_image(reference_sfm: Union[Path, pycolmap.Reconstruction],
             continue
         db_ids.append(db_name_to_id[n])
 
-    ret, _ = pose_from_cluster(
+    ret, log = pose_from_cluster(
             localizer, qname, qcam, db_ids, features, matches)
     if ret['success']:
         poses[qname] = (ret['qvec'], ret['tvec'])
@@ -225,9 +223,7 @@ def localize_from_image(reference_sfm: Union[Path, pycolmap.Reconstruction],
         closest = reference_sfm.images[db_ids[0]]
         poses[qname] = (closest.qvec, closest.tvec)
 
-    # logger.info(f'Localized {len(poses)} / {len(queries)} images.')
-    # logger.info(f'Writing poses to {results}...')
-    return poses
+    return poses, log
 
 
 def main(reference_sfm: Union[Path, pycolmap.Reconstruction],

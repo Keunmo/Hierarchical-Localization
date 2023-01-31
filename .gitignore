@@ -2,6 +2,7 @@ __pycache__
 *.pyc
 *.egg-info
 .ipynb_checkpoints
+.venv
 outputs/
 datasets/*
 !datasets/sacre_coeur/
@@ -9,3 +10,5 @@ tests/
 server/client_data/
 server/Config.py
 server/reconstruction/
+server/img_data/*
+server/received_img/*

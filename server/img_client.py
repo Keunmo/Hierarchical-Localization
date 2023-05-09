@@ -2,10 +2,11 @@ import socket
 import time
 import struct # 바이트(bytes) 형식의 데이터 처리 모듈
 import pickle
+import srv_conf
 from pathlib import Path
 
-server_ip = 'localhost'
-server_port = 55555
+server_ip = srv_conf.server_ip
+server_port = srv_conf.server_port
 
 img_path = Path("img_data/image.jpg")
 
@@ -35,5 +36,7 @@ print("dbg: sent image")
 #         break
 length = sock.recv(1024)
 print("Received image length: ", length.decode())
+loc_result = sock.recv(1024)
+print("Received localization result: ", loc_result.decode())
 
 sock.close()

@@ -155,8 +155,10 @@ def match_from_paths(conf: Dict,
 
     # for (name0, name1) in tqdm(pairs, smoothing=.1):
     for (name0, name1) in pairs:
+        # print("debug: ", name0, name1)
         data = {}
         with h5py.File(str(feature_path_q), 'r', libver='latest') as fd:
+            # print("debug: ", str(feature_path_q))
             grp = fd[name0]
             for k, v in grp.items():
                 data[k+'0'] = torch.from_numpy(v.__array__()).float().to(device)

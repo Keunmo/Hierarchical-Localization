@@ -123,6 +123,109 @@ def pose_from_cluster(
     return ret, log
 
 
+def localize_from_query_list(reference_sfm: Union[Path, pycolmap.Reconstruction],
+         dataset: Path,
+         queries: list,
+         retrieval: Path,
+         features: Path,
+         matches: Path,
+         ransac_thresh: int = 12,
+         config: Dict = None):
+
+    assert retrieval.exists(), retrieval
+    assert features.exists(), features
+    assert matches.exists(), matches
+
+    queries = [(qname, pycolmap.infer_camera_from_image(dataset / qname)) for qname in queries]
+
+    retrieval_dict = parse_retrieval(retrieval)
+
+    logger.info('Reading the 3D model...')
+    if not isinstance(reference_sfm, pycolmap.Reconstruction):
+        reference_sfm = pycolmap.Reconstruction(reference_sfm)
+    db_name_to_id = {img.name: i for i, img in reference_sfm.images.items()}
+
+    config = {"estimation": {"ransac": {"max_error": ransac_thresh}}, **(config or {})}
+    localizer = QueryLocalizer(reference_sfm, config)
+    poses = {}
+
+    logger.info('Starting localization...')
+    for qname, qcam in tqdm(queries):
+        if qname not in retrieval_dict:
+            logger.warning(
+                f'No images retrieved for query image {qname}. Skipping...')
+            continue
+        db_names = retrieval_dict[qname]
+        db_ids = []
+        for n in db_names:
+            if n not in db_name_to_id:
+                logger.warning(f'Image {n} was retrieved but not in database')
+                continue
+            db_ids.append(db_name_to_id[n])
+
+        ret, log = pose_from_cluster(
+                localizer, qname, qcam, db_ids, features, matches)
+        if ret['success']:
+            poses[qname] = (ret['qvec'], ret['tvec'])
+        else:
+            closest = reference_sfm.images[db_ids[0]]
+            poses[qname] = (closest.qvec, closest.tvec)
+
+    logger.info(f'Localized {len(poses)} / {len(queries)} images.')
+    return poses, log
+
+
+def localize_from_image(reference_sfm: Union[Path, pycolmap.Reconstruction],
+         dataset: Path,
+         query: Path,
+         retrieval: Path,
+         features: Path,
+         matches: Path,
+         ransac_thresh: int = 12,
+         config: Dict = None):
+
+    assert retrieval.exists(), retrieval
+    assert features.exists(), features
+    assert matches.exists(), matches
+
+    qname = str(query)
+    qcam = pycolmap.infer_camera_from_image(dataset / query)
+
+    retrieval_dict = parse_retrieval(retrieval)
+
+    logger.info('Reading the 3D model...')
+    if not isinstance(reference_sfm, pycolmap.Reconstruction):
+        reference_sfm = pycolmap.Reconstruction(reference_sfm)
+    db_name_to_id = {img.name: i for i, img in reference_sfm.images.items()}
+
+    config = {"estimation": {"ransac": {"max_error": ransac_thresh}}, **(config or {})}
+    localizer = QueryLocalizer(reference_sfm, config)
+    poses = {}
+
+    logger.info('Starting localization...')
+    if qname not in retrieval_dict:
+        logger.warning(
+            f'No images retrieved for query image {qname}. Skipping...')
+        return None
+    db_names = retrieval_dict[qname]
+    db_ids = []
+    for n in db_names:
+        if n not in db_name_to_id:
+            logger.warning(f'Image {n} was retrieved but not in database')
+            continue
+        db_ids.append(db_name_to_id[n])
+
+    ret, log = pose_from_cluster(
+            localizer, qname, qcam, db_ids, features, matches)
+    if ret['success']:
+        poses[qname] = (ret['qvec'], ret['tvec'])
+    else:
+        closest = reference_sfm.images[db_ids[0]]
+        poses[qname] = (closest.qvec, closest.tvec)
+
+    return poses, log
+
+
 def main(reference_sfm: Union[Path, pycolmap.Reconstruction],
          queries: Path,
          retrieval: Path,
@@ -214,6 +317,7 @@ def main(reference_sfm: Union[Path, pycolmap.Reconstruction],
             if prepend_camera_name:
                 name = q.split('/')[-2] + '/' + name
             f.write(f'{name} {qvec} {tvec}\n')
+            print(f'{name} {qvec} {tvec}')
 
     logs_path = f'{results}_logs.pkl'
     logger.info(f'Writing logs to {logs_path}...')

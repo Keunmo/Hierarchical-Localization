@@ -87,8 +87,8 @@ confs = {
 
 def to_cpts(kpts, ps):
     if ps > 0.0:
-        cpts = np.round(np.round((kpts + 0.5) / ps) * ps - 0.5, 2)
-    return [tuple(cpt) for cpt in cpts]
+        kpts = np.round(np.round((kpts + 0.5) / ps) * ps - 0.5, 2)
+    return [tuple(cpt) for cpt in kpts]
 
 
 def assign_keypoints(kpts: np.ndarray,
@@ -100,13 +100,15 @@ def assign_keypoints(kpts: np.ndarray,
                      cell_size: Optional[int] = None):
     if not update:
         # Without update this is just a NN search
+	if len(other_cpts) == 0 or len(kpts) == 0:
+            return np.full(len(kpts), -1)
         dist, kpt_ids = KDTree(np.array(other_cpts)).query(kpts)
         valid = (dist <= max_error)
         kpt_ids[~valid] = -1
         return kpt_ids
     else:
         ps = cell_size if cell_size is not None else max_error
-        ps = max(cell_size, max_error)
+        ps = max(ps, max_error)
         # With update we quantize and bin (optionally)
         assert isinstance(other_cpts, list)
         kpt_ids = []
@@ -145,7 +147,7 @@ def get_unique_matches(match_ids, scores):
         return [0]
 
     isets1 = get_grouped_ids(match_ids[:, 0])
-    isets2 = get_grouped_ids(match_ids[:, 0])
+    isets2 = get_grouped_ids(match_ids[:, 1])
     uid1s = [ids[scores[ids].argmax()] for ids in isets1 if len(ids) > 0]
     uid2s = [ids[scores[ids].argmax()] for ids in isets2 if len(ids) > 0]
     uids = list(set(uid1s).intersection(uid2s))
@@ -153,9 +155,8 @@ def get_unique_matches(match_ids, scores):
 
 
 def matches_to_matches0(matches, scores):
-    if matches.shape[0] == 0:
-        return (np.zeros([0, 2], dtype=np.uint32),
-                np.zeros([0], dtype=np.float32))
+    if len(matches) == 0:
+        return np.zeros(0, dtype=np.int32), np.zeros(0, dtype=np.float16)
     n_kps0 = np.max(matches[:, 0]) + 1
     matches0 = -np.ones((n_kps0,))
     scores0 = np.zeros((n_kps0,))
@@ -270,13 +271,15 @@ def match_dense(conf: Dict,
             image0, image1 = image0.to(device), image1.to(device)
 
             # match semi-dense
-            if name1 in existing_refs:
-                # flip to enable refinement in query image
+            # for consistency with pairs_from_*: refine kpts of image0
+            if name0 in existing_refs:
+                # special case: flip to enable refinement in query image
                 pred = model({'image0': image1, 'image1': image0})
                 pred = {**pred,
                         'keypoints0': pred['keypoints1'],
                         'keypoints1': pred['keypoints0']}
             else:
+                # usual case
                 pred = model({'image0': image0, 'image1': image1})
 
             # Rescale keypoints and move to cpu
@@ -376,16 +379,18 @@ def aggregate_matches(
             update1 = name1 in required_queries
 
             # in localization we do not want to bin the query kp
-            if update1 and not update0 and max_kps is None:
-                max_error1 = 0.0
+            # assumes that the query is name0!
+            if update0 and not update1 and max_kps is None:
+                max_error0 = cell_size0 = 0.0
             else:
-                max_error1 = conf['max_error']
+                max_error0 = conf['max_error']
+                cell_size0 = conf['cell_size']
 
             # Get match ids and extend query keypoints (cpdict)
-            mkp_ids0 = assign_keypoints(kpts0, cpdict[name0], conf['max_error'],
+            mkp_ids0 = assign_keypoints(kpts0, cpdict[name0], max_error0,
                                         update0, bindict[name0], scores,
-                                        conf['cell_size'])
-            mkp_ids1 = assign_keypoints(kpts1, cpdict[name1], max_error1,
+                                        cell_size0)
+            mkp_ids1 = assign_keypoints(kpts1, cpdict[name1], conf['max_error'],
                                         update1, bindict[name1], scores,
                                         conf['cell_size'])
 

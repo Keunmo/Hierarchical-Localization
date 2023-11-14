@@ -11,7 +11,7 @@ import pycolmap
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
-target = 'hanwon_park_wide_undistort'
+target = 'hanwon_park_wide_undistorted'
 
 images = Path('../datasets/' + target)
 outputs = Path('../outputs/' + target)
@@ -22,8 +22,12 @@ sfm_dir = outputs / 'sfm'
 features = outputs / 'features.h5'
 matches = outputs / 'matches.h5'
 
-feature_conf = extract_features.confs['superpoint_aachen']
-matcher_conf = match_features.confs['superglue']
+# feature_conf = extract_features.confs['superpoint_aachen']
+feature_conf = extract_features.confs['disk']
+# feature_conf = extract_features.confs['sift']
+# matcher_conf = match_features.confs['superglue']
+matcher_conf = match_features.confs['disk+lightglue']
+# matcher_conf = match_features.confs['NN-ratio']
 
 references = [p.relative_to(images).as_posix() for p in (images / 'images/').iterdir()]
 
@@ -31,4 +35,14 @@ extract_features.main(feature_conf, images, image_list=references, feature_path=
 pairs_from_exhaustive.main(sfm_pairs, image_list=references)
 match_features.main(matcher_conf, sfm_pairs, features=features, matches=matches)
 
-model = reconstruction.main(sfm_dir, images, sfm_pairs, features, matches, image_list=references)
+intrinsic_path = images / target / 'intrinsics.txt'
+with open(intrinsic_path, 'r') as f:
+    lines = f.readlines()
+    intrinsics = lines[-1].strip()
+
+image_options = pycolmap.ImageReaderOptions()
+image_options.camera_model = 'SIMPLE_PINHOLE'
+image_options.camera_params = intrinsics
+image_options.todict()
+
+model = reconstruction.main(sfm_dir, images, sfm_pairs, features, matches, image_list=references, image_options=image_options)

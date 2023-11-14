@@ -5,11 +5,14 @@ import socket
 import logging
 import math
 from _thread import *
+from typing import Optional
 
 import pycolmap
 from pathlib import Path
 from hloc import extract_features, match_features, pairs_from_retrieval, reconstruction, visualization, pairs_from_exhaustive
 from hloc.localize_sfm import QueryLocalizer, pose_from_cluster
+
+from server import *
 
 logger = logging.getLogger("hloc")
 logger.setLevel(logging.DEBUG)
@@ -17,52 +20,39 @@ logger.setLevel(logging.DEBUG)
 # os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
-HERE_PATH = os.path.normpath(os.path.dirname(__file__))
 
-target = 'fastfive'
+"""
+[data structure]
 
-images = Path('../datasets/' + target)
-ref_images = Path(images / 'mapping')
-# outputs = Path('../outputs/' + target)
-query_images = Path('../datasets/' + target + '/query')
-outputs = Path('../outputs/' + 'fastfive-10pair')
-
-sfm_pairs = outputs / 'pairs-sfm.txt'
-loc_pairs = outputs / 'pairs-loc.txt'
-sfm_dir = outputs / 'sfm'
-# features = outputs / 'features.h5'
-# matches = outputs / 'matches.h5'
-
-feature_conf = extract_features.confs['superpoint_aachen']
-matcher_conf = match_features.confs['superglue']
-retrieval_conf = extract_features.confs['netvlad']
-
-features = outputs / f'loc_{feature_conf["output"]}.h5'
-gfeatures = outputs / f'loc_{retrieval_conf["output"]}.h5'
-matches = outputs / f'loc_{feature_conf["output"]}_{matcher_conf["output"]}.h5'
-
-model = pycolmap.Reconstruction()
-model.read_binary(sfm_dir.as_posix())
-
-references = [p.relative_to(images).as_posix() for p in (images / 'mapping').iterdir()]
-ref_ids = [model.find_image_with_name(r).image_id for r in references]
-
-conf = {
-    'estimation': {'ransac': {'max_error': 12}},
-    'refinement': {'refine_focal_length': True, 'refine_extra_params': True},
-}
-localizer = QueryLocalizer(model, conf)
-
-def localizer(query): # query img path
-    # global_descriptors = extract_features.main(retrieval_conf, ref_images, outputs, overwrite=True)
-    global_descriptors = extract_features.main(retrieval_conf, images, outputs, image_list=[query])
-    pairs_from_retrieval.main(global_descriptors, loc_pairs, num_matched=10, query_list=[query], db_model=sfm_dir)
-    features = extract_features.main(feature_conf, query_images, outputs)
-    loc_matches = match_features.main(matcher_conf, loc_pairs, feature_conf['output'], outputs)
-
-    # extract_features.main(feature_conf, images, image_list=[query], feature_path=features, overwrite=True)
-    # pairs_from_exhaustive.main(loc_pairs, image_list=[query], ref_list=references)
-    # match_features.main(matcher_conf, loc_pairs, features=features, matches=matches, overwrite=True)
+datasets
+    map1
+        mapping - mapping images
+            20221103_125848.jpg
+            20221103_125848.jpg
+            ...
+        user_id_0 - user_0's query image
+            20221103_125848.jpg
+        user_id_1
+            20221103_125848.jpg
+        ...
+    map2
+        mapping
+            20221103_125848.jpg
+            ...
+        user_id_0
+            20221103_125848.jpg
+            ...
+        ...
+    ...
+"""
+def localizer(map: Path, user_id: str='query1', query='query.jpg'): # query img path
+# def localizer(query): # query img path
+    # queries = [query.relative_to(images).as_posix()]
+    queries = [Path(id) / '20221103_125848.jpg']
+    global_descriptors = extract_features.main(retrieval_conf, images, outputs, image_list=queries)
+    feature_path = extract_features.main(feature_conf, images, outputs)
+    pairs_from_retrieval.main(global_descriptors, loc_pairs, num_matched=10, db_prefix="mapping", query_prefix=user_id)
+    match_features.main(matcher_conf, loc_pairs, features=feature_path, matches=match_path)
 
     camera = pycolmap.infer_camera_from_image(images / query)
 
@@ -148,4 +138,4 @@ if __name__ == '__main__':
     #     client_socket, addr = server_socket.accept()
     #     start_new_thread(threaded, (client_socket, addr))
 
-    localizer('/home/keunmo/workspace/Hierarchical-Localization/datasets/fastfive/query/20221004_153108.jpg')
+    # localizer('/home/keunmo/workspace/Hierarchical-Localization/datasets/fastfive/query/20221004_153108.jpg')

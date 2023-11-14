@@ -13,3 +13,9 @@
 [submodule "third_party/disk"]
 	path = third_party/disk
 	url = https://github.com/cvlab-epfl/disk.git
+[submodule "third_party/SuperPoint"]
+	path = third_party/SuperPoint
+	url = git@github.com:Keunmo/SuperPoint.git
+[submodule "third_party/OpenGlue"]
+	path = third_party/OpenGlue
+	url = git@github.com:Keunmo/OpenGlue.git

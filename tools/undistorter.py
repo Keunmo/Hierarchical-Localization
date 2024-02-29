@@ -80,7 +80,7 @@ def undistort(data: Path, params: List[float], output: Optional[Path] = None, re
         print(new_cam_mat)
         # save new cam mat as txt
         with open(output / "intrinsics.txt", 'w') as f:
-            f.write("# SIMPLE_PINHOLE fx fy cx cy\n")
+            f.write("# PINHOLE fx fy cx cy\n")
             f.write(f"{new_cam_mat[0, 0]} {new_cam_mat[1, 1]} {new_cam_mat[0, 2]} {new_cam_mat[1, 2]}")
     return len(os.listdir(output))
 

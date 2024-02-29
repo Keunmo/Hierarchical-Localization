@@ -9,3 +9,4 @@ tests/
 server/client_data/
 server/Config.py
 server/reconstruction/
+server/ser_conf.py

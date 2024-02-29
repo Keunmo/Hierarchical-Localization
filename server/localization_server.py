@@ -1,6 +1,6 @@
 import os
 import shutil
-import server.Config as Config
+import server.srv_conf as srv_conf
 import socket
 import logging
 import math
@@ -14,12 +14,12 @@ from hloc.localize_sfm import QueryLocalizer, pose_from_cluster
 logger = logging.getLogger("hloc")
 logger.setLevel(logging.CRITICAL)
 
-os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "7"
+# os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "7"
 
 HERE_PATH = os.path.normpath(os.path.dirname(__file__))
 
-target = 'cluster_4f'
+target = 'library'
 
 images = Path('../datasets/' + target)
 outputs = Path('../outputs/' + target)
@@ -116,8 +116,8 @@ def threaded(client_socket, addr):
     client_socket.close()
 
 
-HOST = Config.serv_addr
-PORT = Config.serv_port
+HOST = srv_conf.serv_addr
+PORT = srv_conf.serv_port
 
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

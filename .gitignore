@@ -15,3 +15,4 @@ server/reconstruction/
 lg_elec*
 server/img_data/*
 server/received_img/*
+server/ser_conf.py
